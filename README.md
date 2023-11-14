@@ -1,5 +1,5 @@
 # Snakemake-workflows
-Snakemake workflows for whole genome bioinformatic analyses. 
+Snakemake workflows for whole genome bioinformatic analyses. This workflow assumes you already have a conda environment set up (and are currently in said activated environment) for the programs used. I recommend running the snakemake command on a separate screen. You may also add additional log files to output throughout the process if you wish. 
 
 # Raw data to vcf files - Snakemake2
 This is a simple workflow for whole-genome analysis, starting from raw paired-end fastq files (already quality-checked) and ending with vcf files (which should be changed to bcf to save space). 
