@@ -1,0 +1,72 @@
+samples=["YBCH1_23E29J01_S1","YBCH3_23F01J01_S2","YBCH5_23F01A02_S3","YBCH6_23F02A01_S4","YBCH7_23F02J01_S5","YBCH8_23F02J02_S6","YBCH11_23F05A01_S7","YBCH12_23F05A02_S8","YBCH14_23F06A01_S9","YBCH15_23F06J02_S10","YBCH16_23F06A02_S11","YBCH17_23F08J01_S12","YBCH18_23F10A01_S13","YBCH20_23F10A02_S14","YBCH22_23F12A01_S15","YBCH23_23F14J01_S16","YBCH24_23F14A01_S17","YBCH26_23F14J02_S18","YBCH27_51660_S19","YBCH28_52986_S20","YBCH29_52988_S21","YBCH30_55406_S22","YBCH31_23I17A01_S23","YBCH32_23I22A01_S24"]
+
+rule all:
+    input:
+        expand("{sample}.vcf", sample=samples)
+
+rule bwa_mapping:
+    input:
+        "reference/genome",
+        "{sample}_R1_001.fastq.gz",
+        "{sample}_R2_001.fastq.gz"
+    output:
+        "{sample}.aln.sam"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "bwa mem -M {input} -t 8 > {output}"
+     
+rule samtools_sort:
+    input:
+        "{sample}.aln.sam"
+    output:
+        "{sample}.sorted.sam"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "picard -Xmx50g SortSam I={input} O={output} SORT_ORDER=coordinate TMP_DIR=~/scratch/"
+
+rule sam_to_bam:
+    input:
+        "{sample}.sorted.sam"
+    output:
+        "{sample}.bam"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "samtools view -Sb {input} > {output}"
+
+rule mark_duplicates:
+    input:
+        "{sample}.bam"
+    output:
+        "{sample}.marked.bam"
+    log:
+        "{sample}.metrics.txt"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "picard MarkDuplicates -Xmx50g I={input} O={output} METRICS_FILE={log} MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=8000"
+        
+rule samtools_index:
+    input:
+        "{sample}.marked.bam"
+    output:
+        "{sample}.bam.bai"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "samtools index {input} {output}"
+
+rule bcftools_call:
+    input:
+        fa="reference/genome",
+        bam="{sample}.marked.bam",
+        bai="{sample}.bam.bai"
+    output:
+        "{sample}.vcf"
+    resources:
+        time='4-00:00:00'
+    shell:
+        "bcftools mpileup -f {input.fa} {input.bam} | "
+        "bcftools call -c -o {output}"
