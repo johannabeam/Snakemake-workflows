@@ -1,0 +1,99 @@
+# Expected input files are raw fastqs, plus a .bed file for the UCE regions when you get there.
+samples = ["SRR4027561","SRR13376055","SRR13376086","SRR13376066","SRR9853699","SRR13376059","SRR9946575","SRR9946933","SRR14546102","SRR23680762","SRR10019930","SRR10424475"]
+rule all:
+    input:
+        expand("/storage/group/dut374/default/johanna/uce-project/uces/{sample}.regions.fa", sample=samples) 
+
+rule adpt_remove:
+    input:
+        sample=["/storage/group/dut374/default/johanna/uce-project/{sample}_1.fastq.gz","/storage/group/dut374/default/johanna/uce-project/{sample}_2.fastq.gz"]
+    output:
+        fq1="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}_R1.fastq.gz",                           # trimmed mate1 reads
+        fq2="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}_R2.fastq.gz",                           # trimmed mate2 reads
+        collapsed="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}.collapsed.fastq.gz",              # overlapping mate-pairs which have been merged into a single read
+        collapsed_trunc="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}.collapsed_trunc.fastq.gz",  # collapsed reads that were quality trimmed
+        singleton="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}.singleton.fastq.gz",              # mate-pairs for which the mate has been discarded
+        discarded="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}.discarded.fastq.gz",              # reads that did not pass filters
+        settings="/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}.settings"                            # parameters as well as overall statistics
+    log:
+        "logs/adapterremoval/pe/{sample}.log"
+    params:
+        extra="--collapse --trimns --minlength 20 --qualitybase 33 --gzip"
+    threads: 2
+    wrapper:
+        "v2.13.0/bio/adapterremoval"
+
+
+rule bwa_align:
+    input:
+        "/storage/group/dut374/default/johanna/uce-project/GCA_003957565.4_bTaeGut1.4.pri_genomic.fna",
+        "/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}_1.fastq.gz", 
+        "/storage/group/dut374/default/johanna/uce-project/trimmed/{sample}_2.fastq.gz"
+    output:
+        "/storage/group/dut374/default/johanna/uce-project/{sample}_aln.bam"
+    log:
+        "/storage/group/dut374/default/johanna/logs/uce-project/{sample}.log"
+    params:
+        extra="-R '@RG\tID:{sample}\tSM:{sample}'",
+        sorting="none",
+        sort_order="coordinate",
+        sort_extra="",
+    shell:
+        "bwa mem -M {input} {params.extra} -t 8 | samtools view -Sb - > {output}"
+
+rule sort_sam:
+    input:
+        "/storage/group/dut374/default/johanna/uce-project/{sample}_aln.bam"
+    output:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_sorted.bam"
+    shell:
+        "picard -Xmx10g SortSam I={input} O={output} SORT_ORDER=coordinate TMP_DIR=~/scratch/"
+
+rule mark_duplicates:
+    input:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_sorted.bam"
+    output:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_marked.bam"
+    log:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_metrics.txt"
+    shell:
+        "picard MarkDuplicates I={input} O={output} METRICS_FILE={log} MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=8000"
+        
+rule samtools_index:
+    input:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_marked.bam"
+    output:
+        "/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}.bam.bai"
+    shell:
+        "samtools index {input} {output}"
+
+rule bcftools_call:
+    input:
+        fa="/storage/group/dut374/default/johanna/uce-project/GCA_003957565.4_bTaeGut1.4.pri_genomic.fna",
+        bam="/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}_marked.bam",
+        bai="/storage/group/dut374/default/johanna/uce-project/sorted_reads/{sample}.bam.bai",
+        bed="/storage/group/dut374/default/all_warblers/working/UCE/UCE_regions_final.bed"
+    output:
+        "/storage/group/dut374/default/johanna/uce-project/called/{sample}.vcf.gz"
+    shell:
+        """
+        bcftools mpileup -Ou -T {input.bed} -f {input.fa} {input.bam} |
+        bcftools call -mv -Ou |
+        bcftools filter -Ou -i 'QUAL>20 && DP<200' |
+        bcftools norm --write-index -f {input.fa} -Oz -o {output}
+        """
+
+rule seqtk_x_regions:
+    input:
+       bed="/storage/group/dut374/default/all_warblers/working/UCE/UCE_regions_final.bed",
+       indiv="/storage/group/dut374/default/johanna/uce-project/called/{sample}.vcf.gz"
+    output:
+       fq="/storage/group/dut374/default/johanna/uce-project/uces/{sample}.fq",
+       fa="/storage/group/dut374/default/johanna/uce-project/uces/{sample}.fa",
+       final="/storage/group/dut374/default/johanna/uce-project/uces/{sample}.regions.fa"
+    shell:
+        """
+        bcftools vcf2fq {input.indiv} > {output.fq} |
+        seqtk seq -a {output.fq} > {output.fa} |
+        seqtk subseq {output.fa} {input.bed} > {output.final}
+        """
