@@ -12,5 +12,5 @@ This is optional, but in order to sort and index the bcf files, they need to be 
 # Config files for running on remote cluster
 It is recommended that you create a config file (config.yaml) that neatly tells Snakemake where to run the workflow. You can add this to the Snakemake command by simply adding --profile attach/path/to/profile. This way you can set a default run time, number of cores, nodes, and jobs to use. Make sure to not overload your cluster or things may run more slowly. 
 
-# Making new projects
-This is how to make a new project. 
+# THIS is still a WIP.
+Just be cautious and use at your own risk. I've made lots of changes to these over time and will eventually get to uploading new ones.
